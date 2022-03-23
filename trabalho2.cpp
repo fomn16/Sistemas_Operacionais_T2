@@ -247,6 +247,7 @@ void display(void)
 
 int main(int argc, char** argv)
 {
+   srand(time(0));
    for(int i = 0; i < N; i++){
       boids.push_back(Boid(&boids, i, my_rand(), my_rand(), SPEED, BOID_SIZE));
    } 
