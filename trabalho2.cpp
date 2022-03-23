@@ -17,9 +17,9 @@
 #define L 600
 #define BOID_SIZE 0.01
 #define SPEED 0.0002
-#define COHESION 0
-#define ALIGNMENT 0
-#define SEPARATION 0
+#define COHESION 0.01
+#define ALIGNMENT 0.01
+#define SEPARATION 0.02
 #define BORDER 0.02
 #define SIGHT 0.2 
 #define SEPARATION_Q 4
