@@ -17,9 +17,10 @@
 #define L 600
 #define BOID_SIZE 0.01
 #define SPEED 0.0002
-#define COHESION 0.01
-#define ALIGNMENT 0.01
-#define SEPARATION 0.02
+#define COHESION 0
+#define ALIGNMENT 0
+#define SEPARATION 0
+#define BORDER 0.02
 #define SIGHT 0.2 
 #define SEPARATION_Q 4
 #define SMOOTHNESS 0.8
@@ -62,7 +63,9 @@ float angleToPoint(float x1, float y1, float x2, float y2){
 
 inline float dist(float x0, float y0, float x1, float y1){
    float dx = x0 - x1;
+
    float dy = y0 - y1;
+
    return sqrt(dx*dx + dy*dy);
 }
 
@@ -91,6 +94,78 @@ class Boid{
       v = _v;
       size = _s;
       a = (my_rand() + 1)*M_PI;
+   }
+
+   float adjustedAngle(float a0, float a1, float ammount){
+      float da1 = a0 - a1;
+      float da2;
+
+      if (da1 > 0)
+         da2 = da1 - 2*M_PI;
+      else
+         da2 = 2*M_PI + da1;
+
+      if(abs(da1) < abs(da2))
+         return da1*ammount;
+      return da2*ammount;
+   }
+
+   float cohesion(float ammount){
+      if(avrg_x != x || avrg_y != y)
+         return adjustedAngle(angleToPoint(x, y, avrg_x, avrg_y), a, ammount);
+      return 0;
+   }
+
+   float alignment(float ammount){
+      if(avrg_a != a)
+         return adjustedAngle(avrg_a, a, ammount);
+      return 0;
+   }
+
+   float separation(float ammount){
+      if(avrg_sep_x != x || avrg_sep_y != y)
+         return adjustedAngle(a, angleToPoint(x, y, avrg_sep_x, avrg_sep_y), ammount);
+      return 0;
+   }
+
+   float avoidBorder(float ammount){
+      float dx = x, dy = y;
+      if(x > 0.9)
+         dx = 1;
+      if(x < -0.9)
+         dx = -1;
+
+      if(y > 0.9)
+         dy = 1;
+      if(y < -0.9)
+         dy = -1;
+
+      if(dx != x || dy != y)
+         return adjustedAngle(angleToPoint(dx, dy, x, y), a, ammount);
+      return 0;
+   }
+
+   void limitToScreen(){
+      if(abs(x) > 1)
+         x = x > 0 ? 0.99:-0.99;
+      if(abs(y) > 1)
+         y = y > 0 ? 0.99:-0.99;
+   }
+
+   void applyVelocity(){
+      x += v*sin(a);
+      y += v*cos(a);
+
+      float da = 0;
+      da += cohesion(COHESION);
+      da += alignment(ALIGNMENT);
+      da += separation(SEPARATION);
+      da += avoidBorder(BORDER);
+      da += a;
+
+      a = SMOOTHNESS*a + (1-SMOOTHNESS)*da;
+
+      a = boundedAngle(a);
    }
 
    void calculateStats(){
@@ -135,61 +210,6 @@ class Boid{
       }
    }
 
-   float adjustedAngle(float a0, float a1, float ammount){
-      float da1 = a0 - a1;
-      float da2;
-
-      if (da1 > 0)
-         da2 = da1 - 2*M_PI;
-      else
-         da2 = 2*M_PI + da1;
-
-      if(abs(da1) < abs(da2))
-         return da1*ammount;
-      return da2*ammount;
-   }
-
-   float cohesion(float ammount){
-      if(avrg_x != x || avrg_y != y)
-         return adjustedAngle(angleToPoint(x, y, avrg_x, avrg_y), a, ammount);
-      return 0;
-   }
-
-   float alignment(float ammount){
-      if(avrg_a != a)
-         return adjustedAngle(avrg_a, a, ammount);
-      return 0;
-   }
-
-   float separation(float ammount){
-      if(avrg_sep_x != x || avrg_sep_y != y)
-         return adjustedAngle(a, angleToPoint(x, y, avrg_sep_x, avrg_sep_y), ammount);
-      return 0;
-   }
-
-   void limitToScreen(){
-      if(abs(x) > 1)
-         x = x > 0 ? -1:1;
-      if(abs(y) > 1)
-         y = y > 0 ? -1:1;
-   }
-
-   void applyVelocity(){
-      x += v*sin(a);
-      y += v*cos(a);
-
-      calculateStats();
-      float da = 0;
-      da += cohesion(COHESION);
-      da += alignment(ALIGNMENT);
-      da += separation(SEPARATION);
-      da += a;
-
-      a = SMOOTHNESS*a + (1-SMOOTHNESS)*da;
-
-      a = boundedAngle(a);
-   }
-
    void update(){
       limitToScreen();
       applyVelocity();
@@ -207,8 +227,18 @@ void display(void)
    glClear(GL_COLOR_BUFFER_BIT);
    glMatrixMode(GL_MODELVIEW);      // To operate on Model-View matrix
    glLoadIdentity();                // Reset the model-view matrix
+
+   for(int j = 0; j < 4; j++){
+      for(int i = 0; i < N; i++){
+         boids[i].calculateStats();
+      }
+
+      for(int i = 0; i < N; i++){
+         boids[i].update();
+      }
+   }
+   
    for(int i = 0; i < N; i++){
-      boids[i].update();
       boids[i].draw();
    }
    
