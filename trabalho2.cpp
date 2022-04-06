@@ -11,14 +11,19 @@
 #include <cmath>
 #include <stdlib.h>
 #include <vector>
+#include <array>
+#include <algorithm>
 #include <iostream>
 
-#define N 200
+#include <chrono>
+#include <bits/stdc++.h>
+
+#define N 500
 #define L 600
 #define BOID_SIZE 0.01
 #define SPEED 0.0002
 #define COHESION 0.01
-#define ALIGNMENT 0.01
+#define ALIGNMENT 0.001
 #define SEPARATION 0.02
 #define BORDER 0.02
 #define SIGHT 0.2 
@@ -70,7 +75,8 @@ inline float dist(float x0, float y0, float x1, float y1){
 }
 
 class Boid{
-   vector<Boid> * boids;
+public:
+   Boid * boids;
    int id;
    float x;
    float y;
@@ -86,7 +92,9 @@ class Boid{
    float avrg_sep_y;
    float avrg_a;
 
-   public: Boid(vector<Boid> * _boids, int _id, float _x, float _y, float _v, float _s){
+
+   Boid(){}
+   Boid(Boid * _boids, int _id, float _x, float _y, float _v, float _s){
       boids = _boids;
       id = _id;
       x = _x;
@@ -176,15 +184,58 @@ class Boid{
       avrg_a = 0;
       int count = 0, count_sep = 0;
       for(int i = 0; i < N; i++){
-         float distance = dist(x,y,(*boids)[i].x,(*boids)[i].y);
+         float distance = dist(x,y,boids[i].x,boids[i].y);
          if(i != id && distance < SIGHT){
-            avrg_x += (*boids)[i].x;
-            avrg_y += (*boids)[i].y;
-            avrg_a += (*boids)[i].a;
+            avrg_x += boids[i].x;
+            avrg_y += boids[i].y;
+            avrg_a += boids[i].a;
             count ++;
             if(distance < SIGHT/SEPARATION_Q){
-               avrg_sep_x += (*boids)[i].x;
-               avrg_sep_y += (*boids)[i].y;
+               avrg_sep_x += boids[i].x;
+               avrg_sep_y += boids[i].y;
+               count_sep++;
+            }
+         }
+      }
+      if(count != 0){
+         avrg_x /= count;
+         avrg_y /= count;
+         avrg_a /= count;
+      }
+      else{
+         avrg_x = x;
+         avrg_y = y;
+         avrg_a = a;
+      }
+
+      if(count_sep != 0){
+            avrg_sep_x /= count_sep;
+            avrg_sep_y /= count_sep;
+      }
+      else{
+         avrg_sep_x = x;
+         avrg_sep_y = y;
+      }
+   }
+
+   void calculateStats(vector<int> neighbors){
+      avrg_x = 0;
+      avrg_y = 0;
+      avrg_sep_x = 0;
+      avrg_sep_y = 0;
+      avrg_a = 0;
+      int count = 0, count_sep = 0;
+      for(int j = 0; j < neighbors.size(); j++){
+         int i = neighbors[j];
+         float distance = dist(x,y,boids[i].x,boids[i].y);
+         if(i != id && distance < SIGHT){
+            avrg_x += boids[i].x;
+            avrg_y += boids[i].y;
+            avrg_a += boids[i].a;
+            count ++;
+            if(distance < SIGHT/SEPARATION_Q){
+               avrg_sep_x += boids[i].x;
+               avrg_sep_y += boids[i].y;
                count_sep++;
             }
          }
@@ -220,7 +271,79 @@ class Boid{
    }
 };
 
-vector<Boid> boids;
+class StaticQuadrants{
+   vector<int> quadrants[(int)(2/SIGHT)][(int)(2/SIGHT)];
+   float quadrantSize;
+   Boid * boids;
+  
+public:
+   int nQuadrantsSide;
+
+   StaticQuadrants(Boid* _boids){
+      boids = _boids;
+      quadrantSize = SIGHT;
+      nQuadrantsSide = 2/quadrantSize;
+
+      for(int i = 0; i<N; i++){
+         int x = (int)floor((boids[i].x + 1)/quadrantSize);
+         int y = (int)floor((boids[i].y + 1)/quadrantSize);
+         quadrants[x][y].push_back(i);
+      }
+   }
+
+
+
+   void print(){
+      for (int i = 0; i < nQuadrantsSide; i++){
+         for (int j = 0; j < nQuadrantsSide; j++){
+            cout<<i<<','<<j<<": "<<quadrants[i][j].size()<<'\n';
+         }
+      }
+   }
+
+   void updateQuadrant(int x, int y){
+      vector<array<int,3>> removed;
+      for (int i = 0; i < quadrants[x][y].size(); i++){
+         int index = quadrants[x][y][i];
+         int x_ = (int)floor((boids[index].x + 1)/quadrantSize);
+         int y_ = (int)floor((boids[index].y + 1)/quadrantSize);
+         if(x_ != x || y_ != y){
+            removed.push_back({index, x_, y_});
+         }
+      }
+      for (int i = removed.size() - 1; i >= 0; i--){
+         quadrants[x][y].erase(remove(quadrants[x][y].begin(), quadrants[x][y].end(), removed[i][0]), quadrants[x][y].end());
+         quadrants[removed[i][1]][removed[i][2]].push_back(removed[i][0]);
+      }
+   }
+
+   void calculateStats(int x, int y){
+      vector<int> neighbors;
+
+      int sx = x == 0                  ? x : x-1;
+      int ex = x == nQuadrantsSide - 1 ? x : x+1;
+      int sy = y == 0                  ? y : y-1;
+      int ey = y == nQuadrantsSide - 1 ? y : y+1;
+      
+      for(int i = sx; i <= ex; i++){
+         for(int j = sy; j <= ey; j++){
+            neighbors.insert(neighbors.end(), quadrants[i][j].begin(), quadrants[i][j].end());
+         }
+      }
+      for (int i = 0; i < quadrants[x][y].size(); i++){
+         boids[quadrants[x][y][i]].calculateStats(neighbors);
+      }
+   }
+
+   void update(int x, int y){
+      for (int i = 0; i < quadrants[x][y].size(); i++){
+         boids[quadrants[x][y][i]].update();
+      }
+   }
+};
+
+Boid * boids = new Boid[N];
+StaticQuadrants s(boids);
 
 void display(void)
 {
@@ -228,29 +351,38 @@ void display(void)
    glMatrixMode(GL_MODELVIEW);      // To operate on Model-View matrix
    glLoadIdentity();                // Reset the model-view matrix
 
-   for(int j = 0; j < 4; j++){
-      for(int i = 0; i < N; i++){
-         boids[i].calculateStats();
-      }
-
-      for(int i = 0; i < N; i++){
-         boids[i].update();
+   for (int i = 0; i < s.nQuadrantsSide; i++){
+      for (int j = 0; j < s.nQuadrantsSide; j++){
+         s.calculateStats(i,j);
       }
    }
+
+   for (int i = 0; i < s.nQuadrantsSide; i++){
+      for (int j = 0; j < s.nQuadrantsSide; j++){
+         s.update(i,j);
+      }
+   }
+
    
+   for (int i = 0; i < s.nQuadrantsSide; i++){
+      for (int j = 0; j < s.nQuadrantsSide; j++){
+         s.updateQuadrant(i,j);
+      }
+   }
+
    for(int i = 0; i < N; i++){
       boids[i].draw();
    }
-   
+
    glutSwapBuffers();
 }
 
-int main(int argc, char** argv)
-{
-   srand(time(0));
+void setup(int argc, char** argv){
+   srand(16);
    for(int i = 0; i < N; i++){
-      boids.push_back(Boid(&boids, i, my_rand(), my_rand(), SPEED, BOID_SIZE));
+      boids[i] = Boid(boids, i, my_rand()*0.89, my_rand()*0.89, SPEED, BOID_SIZE);
    } 
+
    glutInit(&argc, argv);           // Initialize GLUT
    glutInitWindowSize(L, L);        // Set the window's initial width & height - non-square
    glutCreateWindow("Trabalho 2");  // Create window with the given title
@@ -260,6 +392,80 @@ int main(int argc, char** argv)
    glutDisplayFunc(display);        // Register callback handler for window re-paint event
    glutIdleFunc(display);
    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-   glutMainLoop();                  // Enter the infinite event-processing loop
+}
+
+int main(int argc, char** argv)
+{
+   setup(argc, argv);
+
+   if(true){
+      auto start = chrono::high_resolution_clock::now();
+  
+      // unsync the I/O of C and C++.
+      ios_base::sync_with_stdio(false);
+
+      for (int iter = 0; iter < 100; iter ++){
+         for (int i = 0; i < s.nQuadrantsSide; i++){
+            for (int j = 0; j < s.nQuadrantsSide; j++){
+               s.calculateStats(i,j);
+            }
+         }
+
+         for (int i = 0; i < s.nQuadrantsSide; i++){
+            for (int j = 0; j < s.nQuadrantsSide; j++){
+               s.update(i,j);
+            }
+         }
+
+         
+         for (int i = 0; i < s.nQuadrantsSide; i++){
+            for (int j = 0; j < s.nQuadrantsSide; j++){
+               s.updateQuadrant(i,j);
+            }
+         } 
+      }
+
+      auto end = chrono::high_resolution_clock::now();
+
+      // Calculating total time taken by the program.
+      double time_taken = 
+      chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+      time_taken *= 1e-9;
+
+      cout << "Tempo com quadrantes : " << fixed 
+         << time_taken << setprecision(9);
+      cout << " seg" << endl;
+
+
+      start = chrono::high_resolution_clock::now();
+
+      for (int iter = 0; iter < 100; iter ++){
+         for(int i = 0; i < N; i++){
+            boids[i].calculateStats();
+         }
+
+         for(int i = 0; i < N; i++){
+            boids[i].update();
+         }
+      }
+
+      end = chrono::high_resolution_clock::now();
+
+      // Calculating total time taken by the program.
+      time_taken = 
+      chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+      time_taken *= 1e-9;
+
+      cout << "Tempo sem quadrantes : " << fixed 
+         << time_taken << setprecision(9);
+      cout << " seg" << endl;
+
+      
+   }
+   else{
+      glutMainLoop();                  // Enter the infinite event-processing glutMainLoop
+   }
    return 0;
 }
