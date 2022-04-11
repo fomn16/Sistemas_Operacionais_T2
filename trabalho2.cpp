@@ -1,4 +1,4 @@
-//g++ trabalho2.cpp -o t2 -lglut -lGLU -lGL -lpthread
+//Bibliotecas usadas para gráficos
 #include <GL/glut.h>
 #include <cmath>
 #include <stdlib.h>
@@ -7,11 +7,17 @@
 #include <algorithm>
 #include <iostream>
 
+//Bibliotecas usadas para benchmarking
 #include <chrono>
 #include <bits/stdc++.h>
 
+//bibliotecas usadas para uso de threads
 #include <pthread.h>
 #include <semaphore.h>
+
+using namespace std;
+
+/********************CONSTANTES USADAS PARA CONTROLE DA SIMULAÇÃO************************/
 
 #define N 500
 #define L 1000
@@ -24,11 +30,13 @@
 #define SIGHT 0.2 
 #define SEPARATION_Q 4
 #define SMOOTHNESS 0.8
-
 #define BENCHMARK_ITERATIONS 1000
 
-using namespace std;
 
+/******************************FUNÇÕES HELPER GLOBAIS************************************/
+
+//desenha um triângulo com o tamanho size especificado na posição (x,y), e rotação a - em radianos
+// a == 0 -> apontando para cima
 void triangle(float x, float y, float size, float a){
    glColor4f(1.0, 1.0, 1.0, 0.5);
    glBegin(GL_TRIANGLES);
@@ -40,6 +48,7 @@ void triangle(float x, float y, float size, float a){
    glEnd();
 };
 
+//dado um ângulo a qualuqer, o transforma em um ângulo entre 0 e 2*PI
 inline float boundedAngle(float a) {
    float temp = fmod(a,2*M_PI);
    if (temp >= 0){
@@ -48,10 +57,12 @@ inline float boundedAngle(float a) {
    return temp + 2*M_PI;
 }
 
+//retorna um número aleatório entre -1 e 1
 float my_rand(){
    return ((rand()%2000) - 1000)/1000.0;
 }
 
+// retorna o ângulo entre o eixo y e um ponto qualuqer - com a origem em (x1,y1)
 float angleToPoint(float x1, float y1, float x2, float y2){
    float dy = y2 - y1;
    float dx = x2 - x1;
@@ -63,6 +74,7 @@ float angleToPoint(float x1, float y1, float x2, float y2){
    return temp;
 }
 
+// retorna a distância entre dois pontos
 inline float dist(float x0, float y0, float x1, float y1){
    float dx = x0 - x1;
 
@@ -71,23 +83,25 @@ inline float dist(float x0, float y0, float x1, float y1){
    return sqrt(dx*dx + dy*dy);
 }
 
+/******************************DEFINIÇÃO DA CLASSE BOID************************************/
+
 class Boid{
    public:
-   Boid * boids;
-   int id;
-   float x;
-   float y;
+   Boid * boids;        //vetor de boids criados
+   int id;              //id do boid
+   float x;             //posição horizontal do boid
+   float y;             //posição vertical
 
-   float v;
-   float a;
+   float v;             //módulo da velocidade
+   float a;             //angulo para o qual o boid está apontando (eixo y para cima = 0)
 
-   float size;
+   float size;          //tamanho do boid
 
-   float avrg_x;
-   float avrg_y;
-   float avrg_sep_x;
-   float avrg_sep_y;
-   float avrg_a;
+   float avrg_x;        //eixo x da posição média dos boids mais próximos que SIGHT
+   float avrg_y;        //eixo y da posição média dos boids mais próximos que SIGHT
+   float avrg_sep_x;    //eixo x da posição média dos boids mais próximos que SIGHT/SEPARATION_Q
+   float avrg_sep_y;    //eixo y da posição média dos boids mais próximos que SIGHT/SEPARATION_Q
+   float avrg_a;        //direção média dos boids mais próximos que SIGHT
 
 
    Boid(){}
@@ -101,6 +115,7 @@ class Boid{
       a = (my_rand() + 1)*M_PI;
    }
 
+   //dadods dois angulos e uma quantidade, retorna a0 ajustado em direção a a1 com peso ammount
    float adjustedAngle(float a0, float a1, float ammount){
       float da1 = a0 - a1;
       float da2;
@@ -115,24 +130,28 @@ class Boid{
       return da2*ammount;
    }
 
+   //calculo do ângulo de ajuste para respeitar a regra de coesão
    float cohesion(float ammount){
       if(avrg_x != x || avrg_y != y)
          return adjustedAngle(angleToPoint(x, y, avrg_x, avrg_y), a, ammount);
       return 0;
    }
 
+   //calculo do ângulo de ajuste para respeitar a regra de alinhamento
    float alignment(float ammount){
       if(avrg_a != a)
          return adjustedAngle(avrg_a, a, ammount);
       return 0;
    }
 
+   //calculo do ângulo de ajuste para respeitar a regra de separação
    float separation(float ammount){
       if(avrg_sep_x != x || avrg_sep_y != y)
          return adjustedAngle(a, angleToPoint(x, y, avrg_sep_x, avrg_sep_y), ammount);
       return 0;
    }
 
+   //calculo do ângulo de ajuste para evitar bordas
    float avoidBorder(float ammount){
       float dx = x, dy = y;
       if(x > 0.9)
@@ -150,6 +169,7 @@ class Boid{
       return 0;
    }
 
+   //impede que boids saiam da área de simulação
    void limitToScreen(){
       if(abs(x) > 1)
          x = x > 0 ? 0.99:-0.99;
@@ -157,6 +177,8 @@ class Boid{
          y = y > 0 ? 0.99:-0.99;
    }
 
+   //aplica velocidade ao boid, atualizando sua posição, e
+   //utiliza as regras para atualizar sua direção
    void applyVelocity(){
       x += v*sin(a);
       y += v*cos(a);
@@ -173,6 +195,7 @@ class Boid{
       a = boundedAngle(a);
    }
 
+   //calcula posições médias e direção média de seus vizinhos
    void calculateStats(){
       avrg_x = 0;
       avrg_y = 0;
@@ -215,6 +238,8 @@ class Boid{
       }
    }
 
+   //calcula posições médias e direção média de seus vizinhos, considerando 
+   //apenas os vizinhos indicados em neighbors
    void calculateStats(vector<int> neighbors){
       avrg_x = 0;
       avrg_y = 0;
@@ -259,25 +284,31 @@ class Boid{
       }
    }
 
+   //faz update da posição e direção do boid
    void update(){
-      limitToScreen();
       applyVelocity();
+      limitToScreen();
    }
 
+   //desenha boid na tela
    void draw(){
       triangle(x, y, size, a);
    }
 };
 
+/******************************DEFINIÇÃO DA CLASSE DE QUADRANTES ESTÁTICOS************************************/
 class StaticQuadrants{
+   //Matriz 2D de quadrantes
    vector<int> quadrants[(int)(2/SIGHT)][(int)(2/SIGHT)];
 
-   float quadrantSize;
-   Boid * boids;
+   //Matriz 2D com lock para acesso à lista de Boids de cada quadrante
    pthread_mutex_t quadrant_locks[(int)(2/SIGHT)][(int)(2/SIGHT)] = {PTHREAD_MUTEX_INITIALIZER};
 
+   float quadrantSize;  //guarda a dimensão do lado do quadrante
+   Boid * boids;        //guarda a lista com todos os Boids
+
    public:
-   int nQuadrantsSide, nQuadrants;
+   int nQuadrantsSide, nQuadrants;     //número de quadrantes por coluna/linha e total, respectivamente
 
    StaticQuadrants(Boid* _boids){
       boids = _boids;
@@ -285,6 +316,7 @@ class StaticQuadrants{
       nQuadrantsSide = 2/quadrantSize;
       nQuadrants = nQuadrantsSide*nQuadrantsSide;
 
+      //fazendo carga inicial dos boids nos quadrantes
       for(int i = 0; i<N; i++){
          int x = (int)floor((boids[i].x + 1)/quadrantSize);
          int y = (int)floor((boids[i].y + 1)/quadrantSize);
@@ -292,14 +324,9 @@ class StaticQuadrants{
       }
    }
 
-   void print(){
-      for (int i = 0; i < nQuadrantsSide; i++){
-         for (int j = 0; j < nQuadrantsSide; j++){
-            cout<<i<<','<<j<<": "<<quadrants[i][j].size()<<'\n';
-         }
-      }
-   }
-
+   //função que verifica se algum dos boids sob responsabilidade
+   //do quadrante [x,y] se moveu para um quadrante vizinho, e repassa a
+   //responsabilidade se for o caso
    void updateQuadrant(int x, int y){
       vector<array<int,3>> removed;
       for (int i = 0; i < quadrants[x][y].size(); i++){
@@ -316,6 +343,9 @@ class StaticQuadrants{
       }
    }
 
+   //faz o mesmo que a função acima, mas usa locks para
+   //garantir que as listas de boids não sofrem com
+   //condições de corrida
    void updateQuadrantThreaded(int x, int y){
       vector<array<int,3>> removed;
       for (int i = 0; i < quadrants[x][y].size(); i++){
@@ -337,6 +367,7 @@ class StaticQuadrants{
       }
    }
 
+   //calcula estatísticas de todos os boids dentro do quadrante [x,y]
    void calculateStats(int x, int y){
       vector<int> neighbors;
 
@@ -355,6 +386,7 @@ class StaticQuadrants{
       }
    }
 
+   //atualiza posição e direção de todos os boids dentro do quadrante [x,y]
    void update(int x, int y){
       for (int i = 0; i < quadrants[x][y].size(); i++){
          boids[quadrants[x][y][i]].update();
@@ -362,27 +394,42 @@ class StaticQuadrants{
    }
 };
 
-Boid * boids = new Boid[N];
-StaticQuadrants s(boids);
+/******************************DEFINIÇÃO DE VARIÁVEIS GLOBAIS DE SIMULAÇÃO************************************/
 
+Boid * boids = new Boid[N];                              //lista de todos os boids sendo simulados
+StaticQuadrants s(boids);                                //instância de quadrantes estáticos
+
+//locks usadas para sincronização das threads
 pthread_mutex_t main_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t calc_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t up_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t q_lock = PTHREAD_MUTEX_INITIALIZER;
+
+//semáforo usado para saber se todas as threads 
+//de um passo finalizaram o cálculo desta iteração
 sem_t s_main;
-pthread_cond_t c_main = PTHREAD_COND_INITIALIZER;
+pthread_cond_t c_main = PTHREAD_COND_INITIALIZER;        //variável de condição da thread principal
 
-int N_THREADS = 4;
+int N_THREADS = 16;                                      //número de threads usadas
 
+//vetor de threads de cálculo de estatísticas e
+//variável de condição de controle das mesmas
 pthread_t *calcThreads;
 pthread_cond_t c_calc = PTHREAD_COND_INITIALIZER;
 
+//vetor de threads de update de boids e
+//variável de condição de controle das mesmas
 pthread_t *updateThreads;
 pthread_cond_t c_update = PTHREAD_COND_INITIALIZER;
 
+//vetor de threads de update de quadrantes e
+//variável de condição de controle das mesmas
 pthread_t *quadrantThreads;
 pthread_cond_t c_quadrants = PTHREAD_COND_INITIALIZER;
 
+/******************************DEFINIÇÃO DAS FUNÇÕES EXECUTADAS PELAS THREADS************************************/
+
+//função executada por threads de cálculo de estatísticas dos boids
 void * calcTask(void* in){
    int x, y, id, min, max;
    id = *((int*)in);
@@ -408,6 +455,7 @@ void * calcTask(void* in){
    pthread_exit(0);
 }
 
+//função executada por threads de update de posição e direção dos boids
 void * updateTask(void* in){
    int x, y, id, min, max;
    id = *((int*)in);
@@ -433,6 +481,7 @@ void * updateTask(void* in){
    pthread_exit(0);
 }
 
+//função executada por threads de update dos quadrantes - repasse de responsabilidades
 void * quadrantTask(void* in){
    int x, y, id, min, max;
    id = *((int*)in);
@@ -458,30 +507,39 @@ void * quadrantTask(void* in){
    pthread_exit(0);
 }
 
+
+/******************************DEFINIÇÃO DAS FUNÇÕES QUE EXECUTAM UMA ITERAÇÃO DE SIMULAÇÃO************************************/
+
+//Execução de iteração da implementação básica
 void simpleUpdate(){
+   //etapa de calculo de estatisticas
    for(int i = 0; i < N; i++){
       boids[i].calculateStats();
    }
 
+   //etapa de update da posição e direção dos boids
    for(int i = 0; i < N; i++){
       boids[i].update();
    }
 }
 
+//Execução de iteração da implementação com divisão em quadrantes
 void updateWithQuadrants(){
+   //etapa de calculo de estatisticas
    for (int i = 0; i < s.nQuadrantsSide; i++){
       for (int j = 0; j < s.nQuadrantsSide; j++){
          s.calculateStats(i,j);
       }
    }
 
+   //etapa de update da posição e direção dos boids
    for (int i = 0; i < s.nQuadrantsSide; i++){
       for (int j = 0; j < s.nQuadrantsSide; j++){
          s.update(i,j);
       }
    }
 
-   
+   //etapa de update dos quadrantes
    for (int i = 0; i < s.nQuadrantsSide; i++){
       for (int j = 0; j < s.nQuadrantsSide; j++){
          s.updateQuadrant(i,j);
@@ -489,9 +547,10 @@ void updateWithQuadrants(){
    } 
 }
 
+//Execução de iteração da implementação com divisão em quadrantes e uso de threads
 void updateThreaded(){
    
-   //calculation step
+   //etapa de calculo de estatisticas
    sem_init(&s_main, 0, N_THREADS - 1);
 
    pthread_mutex_lock(&calc_lock);
@@ -502,7 +561,7 @@ void updateThreaded(){
       pthread_cond_wait(&c_main, &main_lock);
    pthread_mutex_unlock(&main_lock);
 
-   //boid update step
+   //etapa de update da posição e direção dos boids
    sem_init(&s_main, 0, N_THREADS - 1);
 
    pthread_mutex_lock(&up_lock);
@@ -513,7 +572,7 @@ void updateThreaded(){
       pthread_cond_wait(&c_main, &main_lock);
    pthread_mutex_unlock(&main_lock);
 
-   //quadrant update step
+   //etapa de update dos quadrantes
    sem_init(&s_main, 0, N_THREADS - 1);
 
    pthread_mutex_lock(&q_lock);
@@ -525,23 +584,27 @@ void updateThreaded(){
    pthread_mutex_unlock(&main_lock);
 }
 
-
+//função executada em loop para simulação gráfica em tempo real
 void display(void)
 {
+   //preparando tela
    glClear(GL_COLOR_BUFFER_BIT);
-   glMatrixMode(GL_MODELVIEW);      // To operate on Model-View matrix
-   glLoadIdentity();                // Reset the model-view matrix
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
 
-   updateThreaded();
+   updateThreaded();             //função de cálculo de iteração
 
-   //showing graphics
+   //desenhando boids
    for(int i = 0; i < N; i++){
       boids[i].draw();
    }
 
-   glutSwapBuffers();
+   glutSwapBuffers();            //usando duble buffering
 }
 
+
+//função que prepara parte lógica para execução
+//(seta seed, inicializa boids, semáforos e threads)
 void setupLogica(int argc, char** argv){
    srand(16);
    for(int i = 0; i < N; i++){
@@ -576,9 +639,9 @@ void setupLogica(int argc, char** argv){
 }
 
 void setupGraficos(int argc, char** argv){
-   glutInit(&argc, argv);           // Initialize GLUT
-   glutInitWindowSize(L, L);        // Set the window's initial width & height - non-square
-   glutCreateWindow("Trabalho 2");  // Create window with the given title
+   glutInit(&argc, argv);           // INicializa GLUT
+   glutInitWindowSize(L, L);        // Seta o tamanho da tela quadrada
+   glutCreateWindow("Trabalho 2");  // Seta título da tela  
    glutInitDisplayMode(GLUT_DOUBLE);
    glEnable(GL_BLEND);
    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -587,6 +650,7 @@ void setupGraficos(int argc, char** argv){
    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
+//função que executa 1000 vezes cada tipo de iteração e mostra quanto tempo cada uma levou
 void benchmark(){
    auto start = chrono::high_resolution_clock::now();
    
@@ -603,7 +667,7 @@ void benchmark(){
 
    time_taken *= 1e-9;
 
-   cout << "Tempo com implementacao naive : " << fixed 
+   cout << "Tempo com implementacao basica : " << fixed 
    << time_taken << setprecision(9);
    cout << " seg" << endl;
 
@@ -645,33 +709,33 @@ void benchmark(){
    cout << " seg" << endl;
 }
 
+//função principal
 int main(int argc, char** argv)
 {
    int b = 0;
    cout<<"modo de benchmark?\n(0) Nao\n(1) Sim\n";
    cin>>b;
+   //modo de benchmark
    if(b == 1){
       cout << "quantas threads utilizar? (recomendado: 16)\n";
       cin >> N_THREADS;
 
       //alocando vetores para threads
-
       calcThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));
-
       updateThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
-
       quadrantThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
 
       cout << "iniciando benchmark\n";
       setupLogica(argc, argv);
       benchmark();
    }
+   //modo de simulação em tempo real
    else{
+      //alocando vetores para threads
       calcThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));
-
       updateThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
-
       quadrantThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
+
       setupLogica(argc, argv);
       setupGraficos(argc, argv);
       glutMainLoop();                  // Enter the infinite event-processing glutMainLoop
