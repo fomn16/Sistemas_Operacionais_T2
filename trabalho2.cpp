@@ -1,12 +1,4 @@
-/*
-   - divisao dos objetos por quadrante
-   - gerenciador que passa quadrante para as tasks
-      - testar politicas de escalonamento
-
-   - avaliar performance de cada modelo
-*/
-
-//g++ trabalho2.cpp -o t2 -lglut -lGLU -lGL
+//g++ trabalho2.cpp -o t2 -lglut -lGLU -lGL -lpthread
 #include <GL/glut.h>
 #include <cmath>
 #include <stdlib.h>
@@ -18,8 +10,11 @@
 #include <chrono>
 #include <bits/stdc++.h>
 
-#define N 500
-#define L 600
+#include <pthread.h>
+#include <semaphore.h>
+
+#define N 1000
+#define L 1000
 #define BOID_SIZE 0.01
 #define SPEED 0.0002
 #define COHESION 0.01
@@ -30,17 +25,19 @@
 #define SEPARATION_Q 4
 #define SMOOTHNESS 0.8
 
+#define BENCHMARK_ITERATIONS 1000
+
 using namespace std;
 
 void triangle(float x, float y, float size, float a){
    glColor4f(1.0, 1.0, 1.0, 0.5);
    glBegin(GL_TRIANGLES);
-        glVertex3f(x + size*sin(a), y + size*cos(a), 0.0);
-        a += 2.5;
-        glVertex3f(x + size*sin(a), y + size*cos(a), 0.0);
-        a -= 5;
-        glVertex3f(x + size*sin(a), y + size*cos(a), 0.0);
-    glEnd();
+   glVertex3f(x + size*sin(a), y + size*cos(a), 0.0);
+   a += 2.5;
+   glVertex3f(x + size*sin(a), y + size*cos(a), 0.0);
+   a -= 5;
+   glVertex3f(x + size*sin(a), y + size*cos(a), 0.0);
+   glEnd();
 };
 
 inline float boundedAngle(float a) {
@@ -75,7 +72,7 @@ inline float dist(float x0, float y0, float x1, float y1){
 }
 
 class Boid{
-public:
+   public:
    Boid * boids;
    int id;
    float x;
@@ -209,8 +206,8 @@ public:
       }
 
       if(count_sep != 0){
-            avrg_sep_x /= count_sep;
-            avrg_sep_y /= count_sep;
+         avrg_sep_x /= count_sep;
+         avrg_sep_y /= count_sep;
       }
       else{
          avrg_sep_x = x;
@@ -227,15 +224,16 @@ public:
       int count = 0, count_sep = 0;
       for(int j = 0; j < neighbors.size(); j++){
          int i = neighbors[j];
-         float distance = dist(x,y,boids[i].x,boids[i].y);
+         float bx = boids[i].x, by = boids[i].y;
+         float distance = dist(x,y,bx,by);
          if(i != id && distance < SIGHT){
-            avrg_x += boids[i].x;
-            avrg_y += boids[i].y;
+            avrg_x += bx;
+            avrg_y += by;
             avrg_a += boids[i].a;
             count ++;
             if(distance < SIGHT/SEPARATION_Q){
-               avrg_sep_x += boids[i].x;
-               avrg_sep_y += boids[i].y;
+               avrg_sep_x += bx;
+               avrg_sep_y += by;
                count_sep++;
             }
          }
@@ -252,8 +250,8 @@ public:
       }
 
       if(count_sep != 0){
-            avrg_sep_x /= count_sep;
-            avrg_sep_y /= count_sep;
+         avrg_sep_x /= count_sep;
+         avrg_sep_y /= count_sep;
       }
       else{
          avrg_sep_x = x;
@@ -273,16 +271,19 @@ public:
 
 class StaticQuadrants{
    vector<int> quadrants[(int)(2/SIGHT)][(int)(2/SIGHT)];
+
    float quadrantSize;
    Boid * boids;
-  
-public:
-   int nQuadrantsSide;
+   pthread_mutex_t quadrant_locks[(int)(2/SIGHT)][(int)(2/SIGHT)] = {PTHREAD_MUTEX_INITIALIZER};
+
+   public:
+   int nQuadrantsSide, nQuadrants;
 
    StaticQuadrants(Boid* _boids){
       boids = _boids;
       quadrantSize = SIGHT;
       nQuadrantsSide = 2/quadrantSize;
+      nQuadrants = nQuadrantsSide*nQuadrantsSide;
 
       for(int i = 0; i<N; i++){
          int x = (int)floor((boids[i].x + 1)/quadrantSize);
@@ -290,8 +291,6 @@ public:
          quadrants[x][y].push_back(i);
       }
    }
-
-
 
    void print(){
       for (int i = 0; i < nQuadrantsSide; i++){
@@ -314,6 +313,27 @@ public:
       for (int i = removed.size() - 1; i >= 0; i--){
          quadrants[x][y].erase(remove(quadrants[x][y].begin(), quadrants[x][y].end(), removed[i][0]), quadrants[x][y].end());
          quadrants[removed[i][1]][removed[i][2]].push_back(removed[i][0]);
+      }
+   }
+
+   void updateQuadrantThreaded(int x, int y){
+      vector<array<int,3>> removed;
+      for (int i = 0; i < quadrants[x][y].size(); i++){
+         int index = quadrants[x][y][i];
+         int x_ = (int)floor((boids[index].x + 1)/quadrantSize);
+         int y_ = (int)floor((boids[index].y + 1)/quadrantSize);
+         if(x_ != x || y_ != y){
+            removed.push_back({index, x_, y_});
+         }
+      }
+      for (int i = removed.size() - 1; i >= 0; i--){
+         pthread_mutex_lock(&(quadrant_locks[x][y]));
+         quadrants[x][y].erase(remove(quadrants[x][y].begin(), quadrants[x][y].end(), removed[i][0]), quadrants[x][y].end());
+         pthread_mutex_unlock(&(quadrant_locks[x][y])); 
+
+         pthread_mutex_lock(&(quadrant_locks[removed[i][1]][removed[i][2]]));
+         quadrants[removed[i][1]][removed[i][2]].push_back(removed[i][0]);
+         pthread_mutex_unlock(&(quadrant_locks[removed[i][1]][removed[i][2]])); 
       }
    }
 
@@ -345,12 +365,110 @@ public:
 Boid * boids = new Boid[N];
 StaticQuadrants s(boids);
 
-void display(void)
-{
-   glClear(GL_COLOR_BUFFER_BIT);
-   glMatrixMode(GL_MODELVIEW);      // To operate on Model-View matrix
-   glLoadIdentity();                // Reset the model-view matrix
+pthread_mutex_t main_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t calc_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t up_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t q_lock = PTHREAD_MUTEX_INITIALIZER;
+sem_t s_main;
+pthread_cond_t c_main = PTHREAD_COND_INITIALIZER;
 
+int N_THREADS = 4;
+
+pthread_t *calcThreads;
+pthread_cond_t c_calc = PTHREAD_COND_INITIALIZER;
+
+pthread_t *updateThreads;
+pthread_cond_t c_update = PTHREAD_COND_INITIALIZER;
+
+pthread_t *quadrantThreads;
+pthread_cond_t c_quadrants = PTHREAD_COND_INITIALIZER;
+
+void * calcTask(void* in){
+   int x, y, id, min, max;
+   id = *((int*)in);
+   min = (int)((((float)id)/N_THREADS)*s.nQuadrants);
+   max = (int)(((id + 1.0)/N_THREADS)*s.nQuadrants);
+   while(true){
+      pthread_mutex_lock(&calc_lock);
+         pthread_cond_wait(&c_calc, &calc_lock);
+      pthread_mutex_unlock(&calc_lock); 
+
+      for (int i = min; i < max; i++){
+         x = i % s.nQuadrantsSide;
+         y = i / s.nQuadrantsSide;
+         s.calculateStats(x,y);
+      }
+
+      if (sem_trywait(&s_main) != 0){
+         pthread_mutex_lock(&main_lock);
+            pthread_cond_signal(&c_main);
+         pthread_mutex_unlock(&main_lock);
+      }
+   }
+   pthread_exit(0);
+}
+
+void * updateTask(void* in){
+   int x, y, id, min, max;
+   id = *((int*)in);
+   min = (int)((((float)id)/N_THREADS)*s.nQuadrants);
+   max = (int)(((id + 1.0)/N_THREADS)*s.nQuadrants);
+   while(true){
+      pthread_mutex_lock(&up_lock);
+         pthread_cond_wait(&c_update, &up_lock);
+      pthread_mutex_unlock(&up_lock); 
+
+      for (int i = min; i < max; i++){
+         x = i % s.nQuadrantsSide;
+         y = i / s.nQuadrantsSide;
+         s.update(x,y);
+      }
+
+      if (sem_trywait(&s_main) != 0){
+         pthread_mutex_lock(&main_lock);
+            pthread_cond_signal(&c_main);
+         pthread_mutex_unlock(&main_lock);
+      }
+   }
+   pthread_exit(0);
+}
+
+void * quadrantTask(void* in){
+   int x, y, id, min, max;
+   id = *((int*)in);
+   min = (int)((((float)id)/N_THREADS)*s.nQuadrants);
+   max = (int)(((id + 1.0)/N_THREADS)*s.nQuadrants);
+   while(true){
+      pthread_mutex_lock(&q_lock);
+         pthread_cond_wait(&c_quadrants, &q_lock);
+      pthread_mutex_unlock(&q_lock); 
+
+      for (int i = min; i < max; i++){
+         x = i % s.nQuadrantsSide;
+         y = i / s.nQuadrantsSide;
+         s.updateQuadrantThreaded(x,y);
+      }
+
+      if (sem_trywait(&s_main) != 0){
+         pthread_mutex_lock(&main_lock);
+            pthread_cond_signal(&c_main);
+         pthread_mutex_unlock(&main_lock);
+      }
+   }
+   pthread_exit(0);
+}
+
+void simpleUpdate(){
+   for(int i = 0; i < N; i++){
+      boids[i].calculateStats();
+   }
+
+   for(int i = 0; i < N; i++){
+      boids[i].update();
+   }
+}
+
+void updateWithQuadrants(){
    for (int i = 0; i < s.nQuadrantsSide; i++){
       for (int j = 0; j < s.nQuadrantsSide; j++){
          s.calculateStats(i,j);
@@ -368,8 +486,55 @@ void display(void)
       for (int j = 0; j < s.nQuadrantsSide; j++){
          s.updateQuadrant(i,j);
       }
-   }
+   } 
+}
 
+void updateThreaded(){
+   
+   //calculation step
+   sem_init(&s_main, 0, N_THREADS - 1);
+
+   pthread_mutex_lock(&calc_lock);
+      pthread_cond_broadcast(&c_calc);
+   pthread_mutex_unlock(&calc_lock);
+
+   pthread_mutex_lock(&main_lock);
+      pthread_cond_wait(&c_main, &main_lock);
+   pthread_mutex_unlock(&main_lock);
+
+   //boid update step
+   sem_init(&s_main, 0, N_THREADS - 1);
+
+   pthread_mutex_lock(&up_lock);
+      pthread_cond_broadcast(&c_update);
+   pthread_mutex_unlock(&up_lock);
+
+   pthread_mutex_lock(&main_lock);
+      pthread_cond_wait(&c_main, &main_lock);
+   pthread_mutex_unlock(&main_lock);
+
+   //quadrant update step
+   sem_init(&s_main, 0, N_THREADS - 1);
+
+   pthread_mutex_lock(&q_lock);
+      pthread_cond_broadcast(&c_quadrants);
+   pthread_mutex_unlock(&q_lock);
+
+   pthread_mutex_lock(&main_lock);
+      pthread_cond_wait(&c_main, &main_lock);
+   pthread_mutex_unlock(&main_lock);
+}
+
+
+void display(void)
+{
+   glClear(GL_COLOR_BUFFER_BIT);
+   glMatrixMode(GL_MODELVIEW);      // To operate on Model-View matrix
+   glLoadIdentity();                // Reset the model-view matrix
+
+   updateThreaded();
+
+   //showing graphics
    for(int i = 0; i < N; i++){
       boids[i].draw();
    }
@@ -377,12 +542,40 @@ void display(void)
    glutSwapBuffers();
 }
 
-void setup(int argc, char** argv){
+void setupLogica(int argc, char** argv){
    srand(16);
    for(int i = 0; i < N; i++){
       boids[i] = Boid(boids, i, my_rand()*0.89, my_rand()*0.89, SPEED, BOID_SIZE);
    } 
 
+   sem_init(&s_main, 0, 0);
+
+   int *id;
+   for(int i = 0; i < N_THREADS; i++){
+      id = (int *) malloc(sizeof(int));
+      *id = i;
+
+      if(pthread_create(&calcThreads[i], NULL, calcTask, (void*) id))
+      {
+         printf("erro na criacao do thread %d\n", i);
+         exit(1);
+      }
+
+      if(pthread_create(&updateThreads[i], NULL, updateTask, (void*) id))
+      {
+         printf("erro na criacao do thread %d\n", i);
+         exit(1);
+      }
+
+      if(pthread_create(&quadrantThreads[i], NULL, quadrantTask, (void*) id))
+      {
+         printf("erro na criacao do thread %d\n", i);
+         exit(1);
+      }
+   }
+}
+
+void setupGraficos(int argc, char** argv){
    glutInit(&argc, argv);           // Initialize GLUT
    glutInitWindowSize(L, L);        // Set the window's initial width & height - non-square
    glutCreateWindow("Trabalho 2");  // Create window with the given title
@@ -394,77 +587,93 @@ void setup(int argc, char** argv){
    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
+void benchmark(){
+   auto start = chrono::high_resolution_clock::now();
+   
+   ios_base::sync_with_stdio(false);
+
+   for (int iter = 0; iter < BENCHMARK_ITERATIONS; iter ++){
+      simpleUpdate();
+   }
+
+   auto end = chrono::high_resolution_clock::now();
+
+   double time_taken = 
+   chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+   time_taken *= 1e-9;
+
+   cout << "Tempo com implementacao naive : " << fixed 
+   << time_taken << setprecision(9);
+   cout << " seg" << endl;
+
+   start = chrono::high_resolution_clock::now();
+
+   ios_base::sync_with_stdio(false);
+
+   for (int iter = 0; iter < BENCHMARK_ITERATIONS; iter ++){
+      updateWithQuadrants();
+   }
+
+   end = chrono::high_resolution_clock::now();
+
+   time_taken = 
+   chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+   time_taken *= 1e-9;
+
+   cout << "Tempo com quadrantes : " << fixed 
+   << time_taken << setprecision(9);
+   cout << " seg" << endl;
+
+
+   start = chrono::high_resolution_clock::now();
+
+   for (int iter = 0; iter < BENCHMARK_ITERATIONS; iter ++){
+      updateThreaded();
+   }
+
+   end = chrono::high_resolution_clock::now();
+
+   time_taken = 
+   chrono::duration_cast<chrono::nanoseconds>(end - start).count();
+
+   time_taken *= 1e-9;
+
+   cout << "Tempo com " << N_THREADS << " threads : " << fixed 
+   << time_taken << setprecision(9);
+   cout << " seg" << endl;
+}
+
 int main(int argc, char** argv)
 {
-   setup(argc, argv);
+   int b = 0;
+   cout<<"modo de benchmark?\n(0) Nao\n(1) Sim\n";
+   cin>>b;
+   if(b == 1){
+      cout << "quantas threads utilizar? (recomendado: 16)\n";
+      cin >> N_THREADS;
 
-   if(true){
-      auto start = chrono::high_resolution_clock::now();
-  
-      // unsync the I/O of C and C++.
-      ios_base::sync_with_stdio(false);
+      //alocando vetores para threads
 
-      for (int iter = 0; iter < 100; iter ++){
-         for (int i = 0; i < s.nQuadrantsSide; i++){
-            for (int j = 0; j < s.nQuadrantsSide; j++){
-               s.calculateStats(i,j);
-            }
-         }
+      calcThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));
 
-         for (int i = 0; i < s.nQuadrantsSide; i++){
-            for (int j = 0; j < s.nQuadrantsSide; j++){
-               s.update(i,j);
-            }
-         }
+      updateThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
 
-         
-         for (int i = 0; i < s.nQuadrantsSide; i++){
-            for (int j = 0; j < s.nQuadrantsSide; j++){
-               s.updateQuadrant(i,j);
-            }
-         } 
-      }
+      quadrantThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
 
-      auto end = chrono::high_resolution_clock::now();
-
-      // Calculating total time taken by the program.
-      double time_taken = 
-      chrono::duration_cast<chrono::nanoseconds>(end - start).count();
-
-      time_taken *= 1e-9;
-
-      cout << "Tempo com quadrantes : " << fixed 
-         << time_taken << setprecision(9);
-      cout << " seg" << endl;
-
-
-      start = chrono::high_resolution_clock::now();
-
-      for (int iter = 0; iter < 100; iter ++){
-         for(int i = 0; i < N; i++){
-            boids[i].calculateStats();
-         }
-
-         for(int i = 0; i < N; i++){
-            boids[i].update();
-         }
-      }
-
-      end = chrono::high_resolution_clock::now();
-
-      // Calculating total time taken by the program.
-      time_taken = 
-      chrono::duration_cast<chrono::nanoseconds>(end - start).count();
-
-      time_taken *= 1e-9;
-
-      cout << "Tempo sem quadrantes : " << fixed 
-         << time_taken << setprecision(9);
-      cout << " seg" << endl;
-
-      
+      cout << "iniciando benchmark\n";
+      setupLogica(argc, argv);
+      benchmark();
    }
    else{
+      calcThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));
+
+      updateThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
+
+      quadrantThreads = (pthread_t*)malloc(N_THREADS*sizeof(pthread_t));;
+      setupLogica(argc, argv);
+      setupGraficos(argc, argv);
       glutMainLoop();                  // Enter the infinite event-processing glutMainLoop
    }
    return 0;
