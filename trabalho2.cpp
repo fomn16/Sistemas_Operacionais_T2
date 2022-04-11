@@ -13,7 +13,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-#define N 1000
+#define N 500
 #define L 1000
 #define BOID_SIZE 0.01
 #define SPEED 0.0002
@@ -622,7 +622,7 @@ void benchmark(){
 
    time_taken *= 1e-9;
 
-   cout << "Tempo com quadrantes : " << fixed 
+   cout << "Tempo com divisão em quadrantes : " << fixed 
    << time_taken << setprecision(9);
    cout << " seg" << endl;
 
@@ -640,7 +640,7 @@ void benchmark(){
 
    time_taken *= 1e-9;
 
-   cout << "Tempo com " << N_THREADS << " threads : " << fixed 
+   cout << "Tempo com divisão de quadrantes e " << N_THREADS << " threads : " << fixed 
    << time_taken << setprecision(9);
    cout << " seg" << endl;
 }
